@@ -2767,12 +2767,18 @@ void FunctionValidator::visitFunction(Function* curr) {
   }
 }
 
-static bool checkSegmentOffset(Expression* curr, Address add, Address max) {
+static bool checkSegmentOffset(Expression* curr, Address add, Address max, const FeatureSet &features) {
+  if (!Properties::isValidInConstantExpression(curr, features)) {
+    return false;
+  }
   if (curr->is<GlobalGet>()) {
     return true;
   }
   auto* c = curr->dynCast<Const>();
   if (!c) {
+    if (features.hasExtendedConst()) {
+      return true;
+    }
     return false;
   }
   uint64_t raw = c->value.getInteger();
@@ -2999,7 +3005,7 @@ static void validateGlobals(Module& module, ValidationInfo& info) {
     info.shouldBeTrue(
       curr->init != nullptr, curr->name, "global init must be non-null");
     assert(curr->init);
-    info.shouldBeTrue(GlobalUtils::canInitializeGlobal(curr->init),
+    info.shouldBeTrue(GlobalUtils::canInitializeGlobal(curr->init, module.features),
                       curr->name,
                       "global init must be valid");
 
@@ -3066,7 +3072,8 @@ static void validateMemory(Module& module, ValidationInfo& info) {
       }
       info.shouldBeTrue(checkSegmentOffset(segment.offset,
                                            segment.data.size(),
-                                           curr.initial * Memory::kPageSize),
+                                           curr.initial * Memory::kPageSize,
+                                           module.features),
                         segment.offset,
                         "memory segment offset should be reasonable");
       if (segment.offset->is<Const>()) {
@@ -3171,7 +3178,8 @@ static void validateTables(Module& module, ValidationInfo& info) {
                          "element segment offset should be i32");
       info.shouldBeTrue(checkSegmentOffset(segment->offset,
                                            segment->data.size(),
-                                           table->initial * Table::kPageSize),
+                                           table->initial * Table::kPageSize,
+                                           module.features),
                         segment->offset,
                         "table segment offset should be reasonable");
       if (module.features.hasTypedFunctionReferences()) {
